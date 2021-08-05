@@ -6,6 +6,10 @@
 #include "open_manipulator_teleop/open_manipulator_teleop_keyboard.h"
 
 bool stop_auto = false;
+bool h_ok = false;
+bool v_ok = false;
+bool d_ok = false;
+
 
 OpenManipulatorTeleop::OpenManipulatorTeleop()
 : node_handle_(""),
@@ -71,10 +75,16 @@ void OpenManipulatorTeleop::kinematicsPoseCallback(const open_manipulator_msgs::
 void OpenManipulatorTeleop::boundingBoxCenterCallback(const std_msgs::String::ConstPtr &msg){
   if(!stop_auto){
     ROS_INFO(msg->data.c_str());
-    moveArm(msg->data.c_str()); 
+    if(!v_ok || !h_ok || !d_ok){
+      if(v_ok) std::cout << "v_ok" << std::endl;
+      if(h_ok) std::cout << "h_ok" << std::endl;
+      if(d_ok) std::cout << "d_ok" << std::endl;
+      moveArm(msg->data.c_str());
+    }
   }
   else{
-    ROS_INFO("Locked in on Object, Grabbing it.");
+    
+    ROS_INFO("Locked in on Object. Stopping Movement.");
   }
 }
 
@@ -116,7 +126,8 @@ void OpenManipulatorTeleop::moveArm(std::string msg){
     setToolControl(joint_angle);
 
     bool dist_ok = true;
-    if(d > 0.16 && d < 0.7){
+    
+    if(d > 0.20001 && d < 0.7){
       goalPose.resize(3, 0.0);
       goalPose.at(0) = DELTA;
       setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
@@ -135,52 +146,66 @@ void OpenManipulatorTeleop::moveArm(std::string msg){
     //     return true;
     //   }
     // }
-    else if(d < 0.158){
-      ROS_INFO("Stopping Auto Pilot");
-      stop_auto = true;
-      acquireObject();
-      return;
+    else if(d < 0.2){
+      dist_ok = true;
+      if(d > 0.0){
+        d_ok = true;
+        ROS_INFO("Close Enough");
+        ROS_INFO("Stopping Auto Pilot");
+        stop_auto = true;
+        
+        acquireObject();
+        return;
+      }
+      
+      
     }
-    else{
-      dist_ok = false;
-    }
+    // else{
+       // dist_ok = false;
+    // }
+    
 
     if(dist_ok){
-      if(x >=384) {
+      // if(h_ok) std::cout << "h_ok" << std::endl;
+      // if(v_ok) std::cout << "v_ok" << std::endl;
+      if(x >= 475) {
         printf("\n<- LEFT <-\t"); //-delta y axes        
         goalPose.resize(3, 0.0);
         goalPose.at(1) = -DELTA;
         setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
       }
-      else if(x <= 256) {
-          printf("\n-> RIGHT ->\t"); //+deltta y axis
-          goalPose.resize(3, 0.0);
-          goalPose.at(1) = DELTA;
-          setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+      else if(x <= 370) {
+        printf("\n-> RIGHT ->\t"); //+deltta y axis
+        goalPose.resize(3, 0.0);
+        goalPose.at(1) = DELTA;
+        setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
       }
       else{
-          printf("\n| CENTER |\t");
+        printf("\n| CENTER |\t");
+        h_ok = true;
       }
 
 
-      if (y <= 192){
-          printf("\t + UP +\n");
-          // printf("input : z \tincrease(++) z axis in task space\n");
-          //we want to move the arm up increase in z direction
-          goalPose.resize(3, 0.0);
-          goalPose.at(2) = DELTA;
-          setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+      if (y <= 310){
+        printf("\t + UP +\n");
+        // printf("input : z \tincrease(++) z axis in task space\n");
+        //we want to move the arm up increase in z direction
+        goalPose.resize(3, 0.0);
+        goalPose.at(2) = DELTA;
+        setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
       }
-      else if (y >=288){
-          printf("\t - DOWN - \n");
-          // printf("input : x \tdecrease(--) z axis in task space\n");
-          //we want to move the arm down decrease in z direction
-          goalPose.resize(3, 0.0);
-          goalPose.at(2) = -DELTA;
-          setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);  
+      else if (y >=390){
+        printf("\t - DOWN - \n");
+        // printf("input : x \tdecrease(--) z axis in task space\n");
+        //we want to move the arm down decrease in z direction
+        goalPose.resize(3, 0.0);
+        goalPose.at(2) = -DELTA;
+        setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);  
       }
       else{
-          printf("\t| CENTER |\n");
+        // center_ok = true;
+        printf("\t| CENTER |\n");
+        v_ok=true;
       }
     }
   }  
@@ -196,27 +221,47 @@ void OpenManipulatorTeleop::acquireObject(){
 
 
   //move forward
+
+  
+
+  //move down
+  // goalPose.resize(3, 0.0);
+  // goalPose.at(2) = DELTA;
+  // for(int i = 0; i<1; i++){
+  //   setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+  //   usleep(10000);
+  // }
+
+  // sleep(1);
+
   goalPose.resize(3, 0.0);
   goalPose.at(0) = DELTA; 
 
-  for(int i = 0; i<120; i++){
+  for(int i = 0; i<130; i++){
     setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
     usleep(10000);
   }
 
+  
+
   //turn a little to the right
-  printf("\n-> RIGHT ->\t"); //+deltta y axis
-  goalPose.resize(3, 0.0);
-  goalPose.at(1) = DELTA;
-  for(int i = 0; i<20; i++){
-    setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-    usleep(10000);
-  }
+  // printf("\n-> RIGHT ->\t"); //+deltta y axis
+  // goalPose.resize(3, 0.0);
+  // goalPose.at(1) = DELTA;
+  // for(int i = 0; i<20; i++){
+  //   setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+  //   usleep(10000);
+  // }
 
 
   //grab object
+  //open grabber
   joint_angle.clear();
-  joint_angle.push_back(0.0005);
+  joint_angle.push_back(0.01);
+  setToolControl(joint_angle);
+  //close grabber
+  joint_angle.clear();
+  joint_angle.push_back(0.00);
   setToolControl(joint_angle);  
 
   sleep(2);
