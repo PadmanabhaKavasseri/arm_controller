@@ -31,7 +31,6 @@ class OpenManipulatorTeleop
   void printText();
   void setGoal(char ch);
 
- private:
   /*****************************************************************************
   ** ROS NodeHandle
   *****************************************************************************/
@@ -56,10 +55,14 @@ class OpenManipulatorTeleop
   ros::Subscriber joint_states_sub_;
   ros::Subscriber kinematics_pose_sub_;
   ros::Subscriber center_coordinates_sub_;
+  ros::Subscriber tb3_state_sub_;
+
+  ros::Publisher arm_state_;
 
   void jointStatesCallback(const sensor_msgs::JointState::ConstPtr &msg);
   void kinematicsPoseCallback(const open_manipulator_msgs::KinematicsPose::ConstPtr &msg);
   void boundingBoxCenterCallback(const std_msgs::String::ConstPtr &msg);
+  void tb3StateCallback(const std_msgs::String::ConstPtr &msg);
 
   /*****************************************************************************
   ** ROS Clients and Open Manipulator Movement Functions
@@ -81,6 +84,7 @@ class OpenManipulatorTeleop
   std::vector<double> parseMsg(std::string msgData);
   void moveArm(std::string msg);
   void acquireObject();
+  void drive();
 
   /*****************************************************************************
   ** Others

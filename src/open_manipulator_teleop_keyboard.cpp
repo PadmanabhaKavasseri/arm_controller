@@ -2,6 +2,10 @@
 #include <vector>
 #include <iostream>
 #include <cstring>
+#include <thread>
+#include <mutex>
+#include <sstream>
+#include <condition_variable>
 
 #include "open_manipulator_teleop/open_manipulator_teleop_keyboard.h"
 
@@ -9,6 +13,11 @@ bool stop_auto = false;
 bool h_ok = false;
 bool v_ok = false;
 bool d_ok = false;
+bool wait = true;
+bool listen_to_camera = false;
+
+std::condition_variable cv;
+std::mutex m;
 
 
 OpenManipulatorTeleop::OpenManipulatorTeleop()
@@ -26,6 +35,9 @@ OpenManipulatorTeleop::OpenManipulatorTeleop()
   ************************************************************/
   initSubscriber();
   initClient();
+
+  // init publisher node
+  arm_state_ = node_handle_.advertise<std_msgs::String>("OM_State", 1000);
 
   disableWaitingForEnter();
   ROS_INFO("OpenManipulator teleoperation using keyboard start");
@@ -47,7 +59,8 @@ void OpenManipulatorTeleop::initClient(){
 void OpenManipulatorTeleop::initSubscriber(){
   joint_states_sub_ = node_handle_.subscribe("joint_states", 10, &OpenManipulatorTeleop::jointStatesCallback, this);
   kinematics_pose_sub_ = node_handle_.subscribe("kinematics_pose", 10, &OpenManipulatorTeleop::kinematicsPoseCallback, this);
-  center_coordinates_sub_ = node_handle_.subscribe("bbox_center", 10, &OpenManipulatorTeleop::boundingBoxCenterCallback, this); 
+  center_coordinates_sub_ = node_handle_.subscribe("bbox_center", 10, &OpenManipulatorTeleop::boundingBoxCenterCallback, this);
+  tb3_state_sub_ = node_handle_.subscribe("TB3_State", 10, &OpenManipulatorTeleop::tb3StateCallback, this);
 }
 
 void OpenManipulatorTeleop::jointStatesCallback(const sensor_msgs::JointState::ConstPtr &msg){
@@ -72,8 +85,26 @@ void OpenManipulatorTeleop::kinematicsPoseCallback(const open_manipulator_msgs::
   present_kinematic_position_ = temp_position;
 }
 
+void OpenManipulatorTeleop::tb3StateCallback(const std_msgs::String::ConstPtr &msg){
+
+  int msg_val = std::stoi(msg->data);
+  std::cout << "MSG: " << msg_val << std::endl;
+  if(msg_val == 1){
+    std::cout << "wait is now flase" << std::endl;
+
+    std::lock_guard<std::mutex> lk(m);
+    wait = false;
+    cv.notify_all();
+    
+
+  }
+  
+  std::cout << "IN CB    ";
+  ROS_INFO(msg->data.c_str());
+}
+
 void OpenManipulatorTeleop::boundingBoxCenterCallback(const std_msgs::String::ConstPtr &msg){
-  if(!stop_auto){
+  if(listen_to_camera){
     ROS_INFO(msg->data.c_str());
     if(!v_ok || !h_ok || !d_ok){
       if(v_ok) std::cout << "v_ok" << std::endl;
@@ -83,8 +114,7 @@ void OpenManipulatorTeleop::boundingBoxCenterCallback(const std_msgs::String::Co
     }
   }
   else{
-    
-    ROS_INFO("Locked in on Object. Stopping Movement.");
+    ROS_INFO("Driver not engaged");
   }
 }
 
@@ -218,41 +248,24 @@ void OpenManipulatorTeleop::acquireObject(){
   ROS_INFO("Grabbing Object");
   std::vector<double> goalPose;  goalPose.resize(3, 0.0);
   std::vector<double> joint_angle;
-
-
-  //move forward
-
   
-
-  //move down
-  // goalPose.resize(3, 0.0);
-  // goalPose.at(2) = DELTA;
-  // for(int i = 0; i<1; i++){
-  //   setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-  //   usleep(10000);
-  // }
-
-  // sleep(1);
-
+  printf("\n-> RIGHT ->\t"); //+deltta y axis
   goalPose.resize(3, 0.0);
-  goalPose.at(0) = DELTA; 
-
-  for(int i = 0; i<130; i++){
+  goalPose.at(1) = DELTA;
+  for(int i = 0; i<1; i++){
     setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
     usleep(10000);
   }
 
-  
+  sleep(1);
 
-  //turn a little to the right
-  // printf("\n-> RIGHT ->\t"); //+deltta y axis
-  // goalPose.resize(3, 0.0);
-  // goalPose.at(1) = DELTA;
-  // for(int i = 0; i<20; i++){
-  //   setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-  //   usleep(10000);
-  // }
+  goalPose.resize(3, 0.0);
+  goalPose.at(0) = DELTA; 
 
+  for(int i = 0; i<115; i++){
+    setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+    usleep(10000);
+  }
 
   //grab object
   //open grabber
@@ -268,7 +281,51 @@ void OpenManipulatorTeleop::acquireObject(){
 
 
   setGoal('2');
+
+  sleep(2);
+  joint_angle.clear();
+  joint_angle.push_back(0.01);
+  setToolControl(joint_angle);
+
   ROS_INFO("Completed");
+  std_msgs::String msg;
+  std::stringstream ss;
+  ss << "Completed\n";
+  msg.data = ss.str();
+  arm_state_.publish(msg);
+  // arm_state_.publish("Grabbing Completed");
+  std::cout << "Published Message" << std::endl;
+
+  // publish complete meessa
+
+  // ros::Rate loop_rate(10);
+  // int count = 0;
+  // while(ros::ok()){
+  //   std_msgs::String msg;
+  //   std::stringstream ss;
+  //   ss << "hello world " << count;
+  //   msg.data = ss.str();
+  //   ROS_INFO("%s", msg.data.c_str());
+  //   arm_state_.publish(msg);
+  //   loop_rate.sleep();
+  //   ++count;
+  // }
+}
+
+void OpenManipulatorTeleop::drive(){
+  while(true){
+    while(wait){
+      std::unique_lock<std::mutex> lk(m);
+      cv.wait(lk);
+      lk.unlock();
+    }
+    std::cout << "wait is false" << std::endl;
+    //allow bounding box callback to matter... arm should now move
+    //need to fix this!!!
+    //doesn't need to keep resetting this bool
+    listen_to_camera = true;
+    sleep(1);
+  }
 }
 
 std::vector<double> OpenManipulatorTeleop::getPresentJointAngle(){
@@ -551,21 +608,18 @@ void OpenManipulatorTeleop::disableWaitingForEnter(void){
 
 
 int main(int argc, char **argv){
-  // Init ROS node
+
   ros::init(argc, argv, "grabber");
+
   OpenManipulatorTeleop openManipulatorTeleop;
 
-  // char ch;
-  // openManipulatorTeleop.printText();
-  if(ros::ok()) ros::spin();
+  std::thread driver(&OpenManipulatorTeleop::drive,&openManipulatorTeleop);
   
-  // while (ros::ok() && (ch = std::getchar()) != 'q')
-  // {
-  //   // ros::spinOnce();
-  //   // openManipulatorTeleop.printText();
-  //   // ros::spinOnce();
-  //   openManipulatorTeleop.setGoal(ch);
-  // }
 
+  if(ros::ok()) ros::spin();
+
+
+  driver.join();
+  
   return 0;
 }
