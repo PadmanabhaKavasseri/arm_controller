@@ -183,8 +183,8 @@ void OpenManipulatorTeleop::moveArm(std::string msg){
         ROS_INFO("Close Enough");
         ROS_INFO("Stopping Auto Pilot");
         stop_auto = true;
-        
         acquireObject();
+        listen_to_camera = false;
         return;
       }
       
