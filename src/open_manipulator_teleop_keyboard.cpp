@@ -290,13 +290,13 @@ void OpenManipulatorTeleop::acquireObject(){
   ROS_INFO("Completed");
   std_msgs::String msg;
   std::stringstream ss;
-  ss << "Completed\n";
+  ss << "1";
   msg.data = ss.str();
   arm_state_.publish(msg);
   // arm_state_.publish("Grabbing Completed");
   std::cout << "Published Message" << std::endl;
 
-  // publish complete meessa
+  
 
   // ros::Rate loop_rate(10);
   // int count = 0;
