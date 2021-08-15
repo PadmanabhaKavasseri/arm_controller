@@ -15,6 +15,10 @@ bool v_ok = false;
 bool d_ok = false;
 bool wait = true;
 bool listen_to_camera = false;
+int d_pass_cnt = 0;
+bool done = false;
+
+bool init = false;
 
 std::condition_variable cv;
 std::mutex m;
@@ -136,7 +140,7 @@ std::vector<double> OpenManipulatorTeleop::parseMsg(std::string msgData){
 void OpenManipulatorTeleop::moveArm(std::string msg){
   bool of = true;
   std::vector<double> goalPose;  goalPose.resize(3, 0.0);
-  //coudl try to see if the size is 1
+
   if(msg.size() == 1){
     of = false;
     ROS_INFO("No Object has been detected. Arm will not move");
@@ -145,97 +149,84 @@ void OpenManipulatorTeleop::moveArm(std::string msg){
   if(of){
     std::vector<double> splitMsg = parseMsg(msg);
     double x = splitMsg[0]; double y = splitMsg[1]; double d = splitMsg[2];
-    // std::cout << "MSG: ";
-    // for(int i=0; i<splitMsg.size(); i++){
-    //   std::cout << splitMsg[i] << " ";
-    // }
-    // std::cout << std::endl << std::flush;
-    //open gripper
+    
     std::vector<double> joint_angle;
     joint_angle.push_back(0.01);
     setToolControl(joint_angle);
 
     bool dist_ok = true;
     
+    // in in appropriate range but too far away... move arm foreward
     if(d > 0.20001 && d < 0.7){
       goalPose.resize(3, 0.0);
       goalPose.at(0) = DELTA;
       setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-    //close gripper
-    // std::vector<double> joint_angle;
-    // joint_angle.push_back(-0.01);
-    // setToolControl(joint_angle);
     }
-    // else if(d <= 0.158){ //|| center_dist <= 0.158
-    //   //close grabber
-    //   // std::vector<double> joint_angle;
-    //   // joint_angle.push_back(0.01);
-    //   // setToolControl(joint_angle);
-
-    //   if(d <= 0.155){
-    //     return true;
-    //   }
-    // }
     else if(d < 0.2){
-      dist_ok = true;
-      if(d > 0.0){
-        d_ok = true;
-        ROS_INFO("Close Enough");
-        ROS_INFO("Stopping Auto Pilot");
-        stop_auto = true;
-        acquireObject();
-        listen_to_camera = false;
-        return;
+      dist_ok = true; //and we can move the arm around
+      if(h_ok && v_ok){
+        d_pass_cnt++;
+      }
+      if(d > 0.0 || d_pass_cnt > 5){
+        if(d_pass_cnt > 5 || (v_ok && h_ok)){
+          ROS_INFO("Close Enough");
+          ROS_INFO("Stopping Auto Pilot");
+          stop_auto = true;
+          d_ok = true;
+          acquireObject();
+          listen_to_camera = false;
+          return;
+        }
       }
       
-      
     }
-    // else{
-       // dist_ok = false;
-    // }
-    
+        
 
     if(dist_ok){
       // if(h_ok) std::cout << "h_ok" << std::endl;
       // if(v_ok) std::cout << "v_ok" << std::endl;
-      if(x >= 475) {
+      if(!h_ok){
+        if(x >= 560) {
         printf("\n<- LEFT <-\t"); //-delta y axes        
         goalPose.resize(3, 0.0);
         goalPose.at(1) = -DELTA;
         setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+        }
+        else if(x <= 510) {
+          printf("\n-> RIGHT ->\t"); //+deltta y axis
+          goalPose.resize(3, 0.0);
+          goalPose.at(1) = DELTA;
+          setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+        }
+        else{
+          printf("\n| CENTER |\t");
+          h_ok = true;
+        }
       }
-      else if(x <= 370) {
-        printf("\n-> RIGHT ->\t"); //+deltta y axis
-        goalPose.resize(3, 0.0);
-        goalPose.at(1) = DELTA;
-        setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-      }
-      else{
-        printf("\n| CENTER |\t");
-        h_ok = true;
-      }
+      
 
-
-      if (y <= 310){
-        printf("\t + UP +\n");
-        // printf("input : z \tincrease(++) z axis in task space\n");
-        //we want to move the arm up increase in z direction
-        goalPose.resize(3, 0.0);
-        goalPose.at(2) = DELTA;
-        setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-      }
-      else if (y >=390){
-        printf("\t - DOWN - \n");
-        // printf("input : x \tdecrease(--) z axis in task space\n");
-        //we want to move the arm down decrease in z direction
-        goalPose.resize(3, 0.0);
-        goalPose.at(2) = -DELTA;
-        setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);  
-      }
-      else{
-        // center_ok = true;
-        printf("\t| CENTER |\n");
-        v_ok=true;
+      if(!v_ok){
+        if (y <= 320){
+          printf("\t + UP +\n");
+          // printf("input : z \tincrease(++) z axis in task space\n");
+          //we want to move the arm up increase in z direction
+          goalPose.resize(3, 0.0);
+          goalPose.at(2) = DELTA;
+          setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+        }
+        else if (y >=400){
+          printf("\t - DOWN - \n");
+          // printf("input : x \tdecrease(--) z axis in task space\n");
+          //we want to move the arm down decrease in z direction
+          goalPose.resize(3, 0.0);
+          goalPose.at(2) = -DELTA;
+          setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);  
+        }
+        else{
+          // center_ok = true;
+          printf("\t| CENTER |\n");
+          v_ok=true;
+        }
       }
     }
   }  
@@ -249,15 +240,25 @@ void OpenManipulatorTeleop::acquireObject(){
   std::vector<double> goalPose;  goalPose.resize(3, 0.0);
   std::vector<double> joint_angle;
   
-  printf("\n-> RIGHT ->\t"); //+deltta y axis
-  goalPose.resize(3, 0.0);
-  goalPose.at(1) = DELTA;
-  for(int i = 0; i<1; i++){
-    setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
-    usleep(10000);
-  }
+  // printf("\n-> RIGHT ->\t"); //+deltta y axis
+  // goalPose.resize(3, 0.0);
+  // goalPose.at(1) = DELTA;
+  // for(int i = 0; i<1; i++){
+  //   setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+  //   usleep(10000);
+  // }
 
-  sleep(1);
+  // sleep(1);
+
+  // printf("\t + UP +\n");
+  // // printf("input : z \tincrease(++) z axis in task space\n");
+  // //we want to move the arm up increase in z direction
+  // goalPose.resize(3, 0.0);
+  // goalPose.at(2) = DELTA;
+  // setTaskSpacePathFromPresentPositionOnly(goalPose, PATH_TIME);
+  // sleep(1);
+
+  // setGoal('') one thing up command
 
   goalPose.resize(3, 0.0);
   goalPose.at(0) = DELTA; 
@@ -279,13 +280,25 @@ void OpenManipulatorTeleop::acquireObject(){
 
   sleep(2);
 
-
   setGoal('2');
 
-  sleep(2);
-  joint_angle.clear();
-  joint_angle.push_back(0.01);
-  setToolControl(joint_angle);
+  // std::vector<std::string> joint_name;
+  // // std::vector<double> joint_angle;
+  // joint_angle.resize(4, 0.0);
+  // double path_time = 2.0;
+  // std::cout << "initPose" << std::endl;
+  // //Present Joint Angle J1: -0.002 J2: -1.233 J3: 0.741 J4: 0.509
+  // joint_name.push_back("joint1"); joint_angle.push_back(0.00);
+  // joint_name.push_back("joint2"); joint_angle.push_back(-1.499);
+  // joint_name.push_back("joint3"); joint_angle.push_back(1.335);
+  // joint_name.push_back("joint4"); joint_angle.push_back(0.196);
+  // setJointSpacePath(joint_name, joint_angle, path_time);
+
+  // sleep(2);
+
+  // joint_angle.clear();
+  // joint_angle.push_back(0.01);
+  // setToolControl(joint_angle);
 
   ROS_INFO("Completed");
   std_msgs::String msg;
@@ -296,28 +309,31 @@ void OpenManipulatorTeleop::acquireObject(){
   // arm_state_.publish("Grabbing Completed");
   std::cout << "Published Message" << std::endl;
 
-  
+  done = true;
 
-  // ros::Rate loop_rate(10);
-  // int count = 0;
-  // while(ros::ok()){
-  //   std_msgs::String msg;
-  //   std::stringstream ss;
-  //   ss << "hello world " << count;
-  //   msg.data = ss.str();
-  //   ROS_INFO("%s", msg.data.c_str());
-  //   arm_state_.publish(msg);
-  //   loop_rate.sleep();
-  //   ++count;
-  // }
 }
 
 void OpenManipulatorTeleop::drive(){
-  while(true){
+  while(!done){
+    // wait = false;//REMOVE FOR REALTIME EXECUTION
     while(wait){
       std::unique_lock<std::mutex> lk(m);
       cv.wait(lk);
       lk.unlock();
+    }
+    if(!init){
+      init = true;
+      setGoal('2');
+      // std::vector<std::string> joint_name;
+      // std::vector<double> joint_angle;
+      // double path_time = 2.0;
+      // std::cout << "initPose" << std::endl;
+      // //Present Joint Angle J1: -0.002 J2: -1.233 J3: 0.741 J4: 0.509
+      // joint_name.push_back("joint1"); joint_angle.push_back(-0.316);
+      // joint_name.push_back("joint2"); joint_angle.push_back(-1.181);
+      // joint_name.push_back("joint3"); joint_angle.push_back(0.741);
+      // joint_name.push_back("joint4"); joint_angle.push_back(0.460);
+      // setJointSpacePath(joint_name, joint_angle, path_time);
     }
     std::cout << "wait is false" << std::endl;
     //allow bounding box callback to matter... arm should now move
@@ -612,6 +628,8 @@ int main(int argc, char **argv){
   ros::init(argc, argv, "grabber");
 
   OpenManipulatorTeleop openManipulatorTeleop;
+
+  openManipulatorTeleop.setGoal('2');
 
   std::thread driver(&OpenManipulatorTeleop::drive,&openManipulatorTeleop);
   
